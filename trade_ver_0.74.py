@@ -102,7 +102,7 @@ def add_features(init_df: pd.DataFrame) -> pd.DataFrame:
     """Добавляет в DF необходимые фичи"""
 
     init_df = init_df.copy()
-    df = init_df.copy()
+    df = init_df.reset_index().copy()
 
     # Avg Price
     df['Price'] = df[['Open', 'Close']].apply('mean', axis=1)
@@ -182,13 +182,36 @@ def add_features(init_df: pd.DataFrame) -> pd.DataFrame:
         res = (seen_max == True) * (seen_max ^ seen_min)
         df.loc[i, 'Str_ind'] = res
 
+    # Long penalty
+    df['long_penalty'] = 0
+    lg_start_price = 0
+    state = 'short'
+
+    for i, row in df[df.Time >= alert_time].iterrows():
+        if state == 'long':
+            if row.Trend == 0:
+                state = 'short'
+                lg_start_price = 0
+                df.loc[i, 'long_penalty'] = max(df.loc[i - 1, 'long_penalty'] - 1, 0)
+            else:
+                df.loc[i, 'long_penalty'] = (row.Price - lg_start_price) / lg_start_price * 100 // 1.0
+        elif state == 'short':
+            if row.Trend == 1:
+                state = 'long'
+                lg_start_price = row.Price
+            df.loc[i, 'long_penalty'] = max(df.loc[i - 1, 'long_penalty'] - 1, 0)
+        if df.loc[i, 'long_penalty'] < 0:
+            df.loc[i, 'long_penalty'] = 0
+        elif df.loc[i, 'long_penalty'] >= 4:
+            df.loc[i, 'long_penalty'] = 4
+
     # Добавление нужных колонок в исходный DF
     new_cols = ['Price', 'Price_isRaise_2div', 'Price_isFall', 'Price_2div',
                 'IsDiffRaise', 'DiffMA',
                 'IsVolumePump', 'TMRate', 'GoodVol', 'Str_ind',
-                'Block_long']
+                'long_penalty', 'Block_long']
 
-    init_df.loc[df.index, new_cols] = df[new_cols]
+    init_df.loc[:, new_cols] = df[new_cols].set_index(init_df.index)
 
     return init_df
 
@@ -216,34 +239,59 @@ def ak_long_indicator(df: pd.DataFrame) -> float:
     return float(indicator)
 
 
+def check_open_close(indicator: float, time: int) -> dict[str: bool]:
+    """Выдаёт действие (вход/выход) по значению индикатора. Также есть выход по времени"""
+
+    res = {'open_long': False, 'close_long': False}
+
+    # Открытие
+    res['open_long'] = indicator >= tresh_top
+
+    # Закрытие
+    res['close_long'] = indicator <= tresh_bot
+
+    # Выход по времени
+    res['close_long'] = time >= line_2
+
+    return res
+
+
 # Тест
-dir = 'e:/Documents/o2trading/data/antifrauded all/'
-file_name = 'CYBERUSDT-1m-2024-08-11_06-24-18.csv'
+dir = 'data/'
+file_name = 'SSVUSDT-1m-2024-07-23_11-27-25.csv'
 df = pd.read_csv(dir + file_name)
 
 # Пороги входа/выхода
 tresh_top = 3
 tresh_bot = -1
 
+# Время начала/конца торговли
 alert_time = df.Time_alert[0]
 line_2 = alert_time + 2 * 60 * 60 * 1000
 
-# Условия входа/выхода
+# Определение индексов входа/выхода
 enter_idxs = []
 exit_idxs = []
 ind = []
 
-for i in df[df.Time.between(alert_time, line_2)].index:
+# Проверка работы
+
+for i in df[df.Time.between(alert_time, line_2 + 1 * 60 * 1000)].index:
+
     indicator = ak_long_indicator(df.loc[:i])
 
-    # Открытие
-    if indicator >= tresh_top:
-        enter_idxs.append(i+1)
+    res = check_open_close(indicator, df.loc[i, 'Time'])
 
-    # Закрытие
-    elif indicator <= tresh_bot:
-        exit_idxs.append(i+1)
+    output = 'open_long' if res['open_long'] else ''
+    output = 'close_long' if res['close_long'] else output
+
+    if output == 'open_long':
+        enter_idxs.append(i + 1)
+    elif output == 'close_long':
+        exit_idxs.append(i + 1)
 
     ind.append(indicator)
 
 print(pd.Series(ind).value_counts(dropna=False).sort_index())
+print('Входы:', enter_idxs)
+print('Выходы', exit_idxs)
