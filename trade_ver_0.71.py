@@ -152,7 +152,7 @@ class AKTrade:
         self.indicator[df.last_valid_index()] = indicator
 
         # Моментальное открытие если цена выросла на 0,5% (Проверка актуальности)
-        if (row.Price / alert_price - 1 > 0.005) and (row.Time >= alert_time):
+        if (row.Price / alert_price - 1 > 0.005) and (row.Time >= self.alert_time):
             self.first_deal = False
 
         return float(indicator)
@@ -212,28 +212,32 @@ class AKTrade:
 
 
 # Тест
-dir = 'data/'
-file_name = 'SSVUSDT-1m-2024-07-23_11-27-25.csv'
-df = pd.read_csv(dir + file_name)
+def main_test():
+    dir = 'data/'
+    file_name = 'SSVUSDT-1m-2024-07-23_11-27-25.csv'
+    df = pd.read_csv(dir + file_name)
 
-alert_time = df.iloc[0].Time_alert
+    alert_time = df.iloc[0].Time_alert
 
-# Проверка работы
-trade = AKTrade(alert_time)
+    # Проверка работы
+    trade = AKTrade(alert_time)
 
-for i in df[df.Time.between(alert_time, alert_time + 121 * 60 * 1000)].index:
+    for i in df[df.Time.between(alert_time, alert_time + 121 * 60 * 1000)].index:
 
-    signal = trade.get_signal(df.loc[:i])
+        signal = trade.get_signal(df.loc[:i])
 
-    if signal == 'open_long':
-        print(f"{ts2dt(df.loc[i, 'Time'])} open long")
+        if signal == 'open_long':
+            print(f"{ts2dt(df.loc[i, 'Time'])} open long")
 
-    elif signal == 'close_long':
-        print(f"{ts2dt(df.loc[i, 'Time'])} close long. Last PnL = {trade.pnl_lst[-1] :.2}")
+        elif signal == 'close_long':
+            print(f"{ts2dt(df.loc[i, 'Time'])} close long. Last PnL = {trade.pnl_lst[-1] :.2}")
 
-print(trade.indicator.value_counts(dropna=False).sort_index(), end='\n\n')
-print('Входы:', trade.enter_idxs)
-print('Выходы', trade.exit_idxs, end='\n\n')
-print('Суммарный PnL', trade.pnl_sum)
+    print(trade.indicator.value_counts(dropna=False).sort_index(), end='\n\n')
+    print('Входы:', trade.enter_idxs)
+    print('Выходы', trade.exit_idxs, end='\n\n')
+    print('Суммарный PnL', trade.pnl_sum)
+
+if __name__ == '__main__':
+    main_test()
 
 
